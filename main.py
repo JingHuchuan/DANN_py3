@@ -1,7 +1,5 @@
 import random
-import os
 import sys
-import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import torch.utils.data
 import numpy as np
@@ -9,6 +7,23 @@ from model import CNNModel
 import torch.multiprocessing as multiprocessing
 from sklearn.model_selection import train_test_split
 from GetData import GetLoader
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--nUser', default=32, type=int, help='the number of users')
+parser.add_argument('--lr', default=1e-3, type=float, help='the initial learning rate')
+parser.add_argument('--epochs', default=100, type=int, help='the epochs of training process')
+parser.add_argument('--num_classes', default=2, type=int, help='the number of classification categories')
+parser.add_argument('--batch_size', default=16, type=int, help='the batch size of DataLoader')
+parser.add_argument('--num_workers', default=4, type=int, help='the num_workers of DataLoader')
+parser.add_argument('--device', default='cuda:0', type=str, help='the number of gpu device')
+parser.add_argument('--data_path', default='../dataset/EEG//DEAP/eachSub/data/', type=str, help='the path of data')
+parser.add_argument('--label_path', default='../dataset/EEG/DEAP/eachSub/label/', type=str, help='the path of label')
+# parser.add_argument('--data_path', default='../data/EEG/DREAMER/eachSub/data/', type=str, help='the path of data')
+# parser.add_argument('--label_path', default='../data/EEG/DREAMER/eachSub/label/', type=str, help='the path of label')
+parser.add_argument('--save_model_path', default='./result/models/', type=str, help='the path of save model')
+parser.add_argument('--save_record_path', default='./result/record/', type=str, help='the path of save train val test')
+parser.add_argument('--routing_iterations', type=int, default=3)
 
 
 def getLoader(data, label):
@@ -27,22 +42,22 @@ def getLoader(data, label):
                                                         random_state=None)
 
     dataset_train = GetLoader(x_train, y_train)
-    dataloader_train = torch.utils.data.DataLoader(dataset_train, batch_size=batch_size, shuffle=True,
-                                                   num_workers=2)
+    dataloader_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True,
+                                                   num_workers=args.num_workers)
 
     dataset_test = GetLoader(x_test, y_test)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=batch_size, shuffle=True,
-                                                  num_workers=2)
+    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, shuffle=True,
+                                                  num_workers=args.num_workers)
 
     return dataloader_train, dataloader_test
 
 
 def test(dataloader):
-    test_net = torch.load(os.path.join(model_root, 'current.pth'))
+    load_path = args.save_model_path + 's{}tos{}@currentEpoch.pth'
+    test_net = torch.load(load_path.format(souSub + 1, tarSub + 1))
     test_net = test_net.eval()
 
-    if cuda:
-        test_net = test_net.to(device)
+    test_net = test_net.to(device)
 
     len_test_dataloader = len(dataloader)
     data_test_iter = iter(dataloader)
@@ -57,9 +72,8 @@ def test(dataloader):
 
         batch_size = len(label)
 
-        if cuda:
-            data = data.to(device)
-            label = label.to(device)
+        data = data.to(device)
+        label = label.to(device)
 
         # 维度的转换，要扩充一个维度，表示训练数据的维度
         data = torch.reshape(data, (data.shape[0], -1, data.shape[1], data.shape[2]))
@@ -79,124 +93,137 @@ def test(dataloader):
 
 if __name__ == '__main__':
     multiprocessing.set_start_method('spawn', force=True)
+    args = parser.parse_args(sys.argv[1:])
+    device = args.device
 
     model_root = 'models'
-    cuda = True
-    cudnn.benchmark = True
-    lr = 1e-3
-    batch_size = 16
-    n_epoch = 100
-    routing_iterations = 3
-    num_classes = 2
-    device = torch.device("cuda:0")
 
     manual_seed = random.randint(1, 10000)
     random.seed(manual_seed)
     torch.manual_seed(manual_seed)
 
-    # 数据读取
-    source_data = np.load('dataset/EEG/DEAP/eachSub/data/s3.npy')
-    source_label = np.load('dataset/EEG/DEAP/eachSub/label/s1.npy')[:, 0]
+    nUser = 32
+    userList = [i for i in range(nUser)]
+    # userList = [i for i in range(args.nUser)]
 
-    target_data = np.load('dataset/EEG/DEAP/eachSub/data/s2.npy')
-    target_label = np.load('dataset/EEG/DEAP/eachSub/label/s2.npy')[:, 0]
+    best_accu_s_array = np.zeros((args.nUser, nUser - 1))
+    best_accu_t_array = np.zeros((args.nUser, nUser - 1))
 
-    dataloader_source_train, dataloader_source_test = getLoader(source_data, source_label)
-    dataloader_target_train, dataloader_target_test = getLoader(target_data, target_label)
+    for tarSub in range(args.nUser):
+        print("target domain subject is sub{}".format(tarSub + 1))
+        trainUserList = [item for item in userList if item != tarSub]
+        target_data = np.load('../dataset/EEG/DEAP/eachSub/data/s{}.npy'.format(tarSub + 1))
+        target_label = np.load('../dataset/EEG/DEAP/eachSub/label/s{}.npy'.format(tarSub + 1))[:, 0]
+        dataloader_target_train, dataloader_target_test = getLoader(target_data, target_label)
+        for souSub in trainUserList:
+            print("source domain subject is sub{}".format(souSub + 1))
+            source_data = np.load('../dataset/EEG/DEAP/eachSub/data/s{}.npy'.format(souSub + 1))
+            source_label = np.load('../dataset/EEG/DEAP/eachSub/label/s{}.npy'.format(souSub + 1))[:, 0]
+            dataloader_source_train, dataloader_source_test = getLoader(source_data, source_label)
 
-    # load model
-    my_net = CNNModel(routing_iterations, num_classes)
+            # load model
+            my_net = CNNModel(args.routing_iterations, args.num_classes)
 
-    # setup optimizer
-    optimizer = optim.Adam(my_net.parameters(), lr=lr)
+            # setup optimizer
+            optimizer = optim.Adam(my_net.parameters(), lr=args.lr)
 
-    loss_class = torch.nn.NLLLoss()
-    loss_domain = torch.nn.NLLLoss()
+            loss_class = torch.nn.NLLLoss()
+            loss_domain = torch.nn.NLLLoss()
 
-    if cuda:
-        my_net = my_net.to(device)
-        loss_class = loss_class.to(device)
-        loss_domain = loss_domain.to(device)
+            my_net = my_net.to(device)
+            loss_class = loss_class.to(device)
+            loss_domain = loss_domain.to(device)
 
-    for p in my_net.parameters():
-        p.requires_grad = True
+            for p in my_net.parameters():
+                p.requires_grad = True
 
-    # training
-    best_accu_t = 0.0
-    for epoch in range(n_epoch):
-        len_dataloader = min(len(dataloader_source_train), len(dataloader_target_train))
-        data_source_iter = iter(dataloader_source_train)
-        data_target_iter = iter(dataloader_target_train)
+            # training
+            best_accu_t = 0.0
+            for epoch in range(args.epochs):
+                len_dataloader = min(len(dataloader_source_train), len(dataloader_target_train))
+                data_source_iter = iter(dataloader_source_train)
+                data_target_iter = iter(dataloader_target_train)
 
-        for i in range(len_dataloader):
-            p = float(i + epoch * len_dataloader) / n_epoch / len_dataloader
-            alpha = 2. / (1. + np.exp(-10 * p)) - 1
+                for i in range(len_dataloader):
+                    p = float(i + epoch * len_dataloader) / args.epochs / len_dataloader
+                    alpha = 2. / (1. + np.exp(-10 * p)) - 1
 
-            # training model using source data
-            data_source = next(data_source_iter)
-            s_data, s_label = data_source
+                    # training model using source data
+                    data_source = next(data_source_iter)
+                    s_data, s_label = data_source
 
-            my_net.zero_grad()
-            batch_size = len(s_label)
+                    my_net.zero_grad()
+                    batch_size = len(s_label)
 
-            # 源域的label设置为0
-            domain_label = torch.zeros(batch_size).long()
+                    # 源域的label设置为0
+                    domain_label = torch.zeros(batch_size).long()
 
-            # 维度的转换，要扩充一个维度，表示训练数据的维度
-            s_data = torch.reshape(s_data, (s_data.shape[0], -1, s_data.shape[1], s_data.shape[2]))
-            s_data = s_data.to(torch.float32)  # 需要进行数据类型的转换
-            s_label = s_label.long()
+                    # 维度的转换，要扩充一个维度，表示训练数据的维度
+                    s_data = torch.reshape(s_data, (s_data.shape[0], -1, s_data.shape[1], s_data.shape[2]))
+                    s_data = s_data.to(torch.float32)  # 需要进行数据类型的转换
+                    s_label = s_label.long()
 
-            if cuda:
-                s_data = s_data.to(device)
-                s_label = s_label.to(device)
-                domain_label = domain_label.to(device)
+                    s_data = s_data.to(device)
+                    s_label = s_label.to(device)
+                    domain_label = domain_label.to(device)
 
-            class_output, domain_output = my_net(input_data=s_data, alpha=alpha)
-            err_s_label = loss_class(class_output, s_label)
-            err_s_domain = loss_domain(domain_output, domain_label)
+                    class_output, domain_output = my_net(input_data=s_data, alpha=alpha)
+                    err_s_label = loss_class(class_output, s_label)
+                    err_s_domain = loss_domain(domain_output, domain_label)
 
-            # training model using target data
-            data_target = next(data_target_iter)
-            t_data, _ = data_target
+                    # training model using target data
+                    data_target = next(data_target_iter)
+                    t_data, _ = data_target
 
-            batch_size = len(t_data)
+                    batch_size = len(t_data)
 
-            # 目标域的label设置为1
-            domain_label = torch.ones(batch_size).long()
+                    # 目标域的label设置为1
+                    domain_label = torch.ones(batch_size).long()
 
-            # 维度的转换，要扩充一个维度，表示训练数据的维度
-            t_data = torch.reshape(t_data, (t_data.shape[0], -1, t_data.shape[1], t_data.shape[2]))
-            t_data = t_data.to(torch.float32)
+                    # 维度的转换，要扩充一个维度，表示训练数据的维度
+                    t_data = torch.reshape(t_data, (t_data.shape[0], -1, t_data.shape[1], t_data.shape[2]))
+                    t_data = t_data.to(torch.float32)
 
-            if cuda:
-                t_data = t_data.to(device)
-                domain_label = domain_label.to(device)
+                    t_data = t_data.to(device)
+                    domain_label = domain_label.to(device)
 
-            _, domain_output = my_net(input_data=t_data, alpha=alpha)
-            err_t_domain = loss_domain(domain_output, domain_label)
-            err = err_t_domain + err_s_domain + err_s_label
-            err.backward()
-            optimizer.step()
+                    _, domain_output = my_net(input_data=t_data, alpha=alpha)
+                    err_t_domain = loss_domain(domain_output, domain_label)
+                    err = err_t_domain + err_s_domain + err_s_label
+                    err.backward()
+                    optimizer.step()
 
-            sys.stdout.write('\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f' \
-                             % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
-                                err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item()))
-            sys.stdout.flush()
-            torch.save(my_net, '{0}/current.pth'.format(model_root))
+                    sys.stdout.write(
+                        '\r epoch: %d, [iter: %d / all %d], err_s_label: %f, err_s_domain: %f, err_t_domain: %f' \
+                        % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
+                           err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item()))
+                    sys.stdout.flush()
+                    save_path = args.save_model_path + 's{}tos{}@currentEpoch.pth'
+                    torch.save(my_net, save_path.format(souSub + 1, tarSub + 1))
 
-        # test
-        print('\n')
-        accu_s = test(dataloader_source_test)
-        print('Accuracy of source_domain: %f' % accu_s)
-        accu_t = test(dataloader_target_test)
-        print('Accuracy of target_domain: %f\n' % accu_t)
-        if accu_t > best_accu_t:
-            best_accu_s = accu_s
-            best_accu_t = accu_t
-            torch.save(my_net, '{0}/best.pth'.format(model_root))
+                # test
+                print('\n')
+                accu_s = test(dataloader_source_test)
+                print('Accuracy of source_domain: %f' % accu_s)
+                accu_t = test(dataloader_target_test)
+                print('Accuracy of target_domain: %f\n' % accu_t)
+                if accu_t > best_accu_t:
+                    best_accu_s = accu_s
+                    best_accu_t = accu_t
+                    save_path = args.save_model_path + 's{}tos{}@bestEpoch.pth'
+                    torch.save(my_net, save_path.format(souSub + 1, tarSub + 1))
 
-    print('============ Summary ============= \n')
-    print('Accuracy of source_domain: %f' % best_accu_s)
-    print('Accuracy of target_domain: %f' % best_accu_t)
-    print('Corresponding model was save in ' + model_root + '/best.pth')
+            best_accu_s_array[tarSub][souSub] = best_accu_s
+            best_accu_t_array[tarSub][souSub] = best_accu_t
+            print('============ Summary =============')
+            print('Accuracy of source_domain: %f' % best_accu_s)
+            print('Accuracy of target_domain: %f' % best_accu_t)
+            print('\n')
+
+        print('============ The Summary sub{} as target subject============= \n'.format(tarSub + 1))
+
+        np.save(args.save_record_path + 'best_accu_s_array.npy', best_accu_s_array)
+        np.save(args.save_record_path + 'best_accu_t_array.npy', best_accu_t_array)
+
+    np.save(args.save_record_path + 'best_accu_s_array.npy', best_accu_s_array)
+    np.save(args.save_record_path + 'best_accu_t_array.npy', best_accu_t_array)
