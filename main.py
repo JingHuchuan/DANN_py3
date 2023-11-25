@@ -104,10 +104,9 @@ if __name__ == '__main__':
 
     nUser = 32
     userList = [i for i in range(nUser)]
-    # userList = [i for i in range(args.nUser)]
 
-    best_accu_s_array = np.zeros((args.nUser, nUser - 1))
-    best_accu_t_array = np.zeros((args.nUser, nUser - 1))
+    best_accu_s_array = np.zeros((args.nUser, nUser))
+    best_accu_t_array = np.zeros((args.nUser, nUser))
 
     for tarSub in range(args.nUser):
         print("target domain subject is sub{}".format(tarSub + 1))
