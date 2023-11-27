@@ -7,45 +7,38 @@ import math
 
 class CNNModel(nn.Module):
 
-    def __init__(self, routing_iterations, classes_num):
+    def __init__(self, classes_num):
         super(CNNModel, self).__init__()
 
-        self.drop_out = 0.25
-        self.block_1 = nn.Sequential()
-        self.block_1.add_module('conv1', nn.Conv2d(1, 8, kernel_size=(1, 64), bias=True))
-        self.block_1.add_module('batch_norm1', nn.BatchNorm2d(8))
-
-        self.block_2 = nn.Sequential()
-        self.block_2.add_module('conv2', nn.Conv2d(8, 16, kernel_size=(32, 1), groups=8, bias=True))
-        self.block_2.add_module('batch_norm2', nn.BatchNorm2d(16))
-        self.block_2.add_module('elu', nn.ELU())
-        self.block_2.add_module('avg_pool', nn.AvgPool2d((1, 4)))
-        self.block_2.add_module('dropout', nn.Dropout(self.drop_out))
-
-        self.primaryCaps = PrimaryCapsLayer(16, 32, 8, kernel_size=(1, 8), stride=1)
-        self.num_primaryCaps = 288
-        routing_module = AgreementRouting(self.num_primaryCaps, classes_num, routing_iterations)
-        self.digitCaps = CapsLayer(self.num_primaryCaps, 8, classes_num, 16, routing_module)
-        self.out = nn.Linear(32, classes_num)
+        self.features = nn.Sequential()
+        self.features.add_module('conv1', nn.Conv2d(5, 16, kernel_size=5, stride=1, padding=2))
+        self.features.add_module('relu1', nn.ReLU(True))
+        self.features.add_module('conv2', nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2))
+        self.features.add_module('relu2', nn.ReLU(True))
+        self.features.add_module('norm1', nn.BatchNorm2d(32))
+        self.features.add_module('dropout1', nn.Dropout(0.2))
+        self.features.add_module('conv3', nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=2))
+        self.features.add_module('relu3', nn.ReLU(True))
+        self.features.add_module('pool1', nn.AvgPool2d(2, stride=2))
+        self.features.add_module('norm2', nn.BatchNorm2d(64))
+        self.features.add_module('dropout2', nn.Dropout(0.3))
+        self.features.add_module('conv4', nn.Conv2d(64, 16, kernel_size=5, stride=1, padding=2))
+        self.features.add_module('relu4', nn.ReLU(True))
 
         self.class_classifier = nn.Sequential()
-        self.class_classifier.add_module('c_fc1', nn.Linear(32, classes_num))
+        self.class_classifier.add_module('c_fc1', nn.Linear(16 * 4 * 4, classes_num))
         self.class_classifier.add_module('c_softmax', nn.LogSoftmax(dim=1))
 
         self.domain_classifier = nn.Sequential()
-        self.domain_classifier.add_module('d_fc1', nn.Linear(2 * 16, 100))
+        self.domain_classifier.add_module('d_fc1', nn.Linear(16 * 4 * 4, 100))
         self.domain_classifier.add_module('d_bn1', nn.BatchNorm1d(100))
         self.domain_classifier.add_module('d_relu1', nn.ReLU(True))
-        self.domain_classifier.add_module('d_fc2', nn.Linear(100, 2))
+        self.domain_classifier.add_module('d_fc2', nn.Linear(100, classes_num))
         self.domain_classifier.add_module('d_softmax', nn.LogSoftmax(dim=1))
 
     def forward(self, input_data, alpha):
-        feature = self.block_1(input_data)
-        feature = self.block_2(feature)
-        feature = self.primaryCaps(feature)
-        feature = self.digitCaps(feature)
-
-        feature = feature.view(-1, 2 * 16)
+        feature = self.features(input_data)
+        feature = feature.view(-1, 16 * 4 * 4)
         reverse_feature = ReverseLayerF.apply(feature, alpha)
         class_output = self.class_classifier(feature)
         domain_output = self.domain_classifier(reverse_feature)

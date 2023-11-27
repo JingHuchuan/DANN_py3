@@ -10,35 +10,30 @@ from GetData import GetLoader
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--nUser', default=32, type=int, help='the number of users')
-parser.add_argument('--lr', default=1e-3, type=float, help='the initial learning rate')
-parser.add_argument('--epochs', default=100, type=int, help='the epochs of training process')
-parser.add_argument('--num_classes', default=2, type=int, help='the number of classification categories')
-parser.add_argument('--batch_size', default=16, type=int, help='the batch size of DataLoader')
-parser.add_argument('--num_workers', default=4, type=int, help='the num_workers of DataLoader')
+parser.add_argument('--nUser', default=15, type=int, help='the number of users')
+parser.add_argument('--lr', default=0.0001, type=float, help='the initial learning rate')
+parser.add_argument('--epochs', default=300, type=int, help='the epochs of training process')
+parser.add_argument('--num_classes', default=3, type=int, help='the number of classification categories')
+parser.add_argument('--session', default=1, type=int, help='第几次实验')
+parser.add_argument('--batch_size', default=128, type=int, help='the batch size of DataLoader')
+parser.add_argument('--num_workers', default=0, type=int, help='the num_workers of DataLoader')
 parser.add_argument('--device', default='cuda:0', type=str, help='the number of gpu device')
-parser.add_argument('--data_path', default='../dataset/EEG//DEAP/eachSub/data/', type=str, help='the path of data')
-parser.add_argument('--label_path', default='../dataset/EEG/DEAP/eachSub/label/', type=str, help='the path of label')
+# parser.add_argument('--data_path', default='../dataset/EEG//DEAP/eachSub/data/', type=str, help='the path of data')
+# parser.add_argument('--label_path', default='../dataset/EEG/DEAP/eachSub/label/', type=str, help='the path of label')
 # parser.add_argument('--data_path', default='../data/EEG/DREAMER/eachSub/data/', type=str, help='the path of data')
 # parser.add_argument('--label_path', default='../data/EEG/DREAMER/eachSub/label/', type=str, help='the path of label')
+parser.add_argument('--data_path', default='../dataset/EEG/SEED/data/', type=str, help='the path of data')
+parser.add_argument('--label_path', default='../dataset/EEG/SEED/label/', type=str, help='the path of label')
 parser.add_argument('--save_model_path', default='./result/models/', type=str, help='the path of save model')
 parser.add_argument('--save_record_path', default='./result/record/', type=str, help='the path of save train val test')
-parser.add_argument('--routing_iterations', type=int, default=3)
 
 
 def getLoader(data, label):
-    # 归一化处理
-    norm_data = np.zeros((data.shape[0], data.shape[1], data.shape[2]))
-
-    for j in range(data.shape[0]):
-        for k in range(data.shape[2]):
-            dataChannel = data[j, :, k]
-            mean = dataChannel.mean()
-            sigma = dataChannel.std()
-            norm_data[j, :, k] = (dataChannel - mean) / sigma
+    for idx in range(len(label)):
+        label[idx] = label[idx] + 1
 
     # 将数据分为参与训练的和不参与训练的
-    x_train, x_test, y_train, y_test = train_test_split(norm_data, label, test_size=0.2,
+    x_train, x_test, y_train, y_test = train_test_split(data, label, test_size=0.2,
                                                         random_state=None)
 
     dataset_train = GetLoader(x_train, y_train)
@@ -53,8 +48,8 @@ def getLoader(data, label):
 
 
 def test(dataloader):
-    load_path = args.save_model_path + 's{}tos{}@currentEpoch.pth'
-    test_net = torch.load(load_path.format(souSub + 1, tarSub + 1))
+    load_path = args.save_model_path + 'session{}@s{}tos{}@currentEpoch.pth'
+    test_net = torch.load(load_path.format(args.session, souSub + 1, tarSub + 1))
     test_net = test_net.eval()
 
     test_net = test_net.to(device)
@@ -75,8 +70,6 @@ def test(dataloader):
         data = data.to(device)
         label = label.to(device)
 
-        # 维度的转换，要扩充一个维度，表示训练数据的维度
-        data = torch.reshape(data, (data.shape[0], -1, data.shape[1], data.shape[2]))
         data = data.to(torch.float32)  # 需要进行数据类型的转换
         label = label.long()
 
@@ -102,26 +95,26 @@ if __name__ == '__main__':
     random.seed(manual_seed)
     torch.manual_seed(manual_seed)
 
-    nUser = 32
+    nUser = 15
     userList = [i for i in range(nUser)]
 
     best_accu_s_array = np.zeros((args.nUser, nUser))
     best_accu_t_array = np.zeros((args.nUser, nUser))
 
     for tarSub in range(args.nUser):
-        print("target domain subject is sub{}".format(tarSub + 1))
+        print("target domain subject is sub{}-{}".format(tarSub + 1, args.session))
         trainUserList = [item for item in userList if item != tarSub]
-        target_data = np.load('../dataset/EEG/DEAP/eachSub/data/s{}.npy'.format(tarSub + 1))
-        target_label = np.load('../dataset/EEG/DEAP/eachSub/label/s{}.npy'.format(tarSub + 1))[:, 0]
+        target_data = np.load(args.data_path + 's{}-{}.npy'.format(tarSub + 1, args.session))
+        target_label = np.load(args.label_path + 's{}-{}.npy'.format(tarSub + 1, args.session))
         dataloader_target_train, dataloader_target_test = getLoader(target_data, target_label)
         for souSub in trainUserList:
-            print("source domain subject is sub{}".format(souSub + 1))
-            source_data = np.load('../dataset/EEG/DEAP/eachSub/data/s{}.npy'.format(souSub + 1))
-            source_label = np.load('../dataset/EEG/DEAP/eachSub/label/s{}.npy'.format(souSub + 1))[:, 0]
+            print("source domain subject is sub{}-{}".format(souSub + 1, args.session))
+            source_data = np.load(args.data_path + 's{}-{}.npy'.format(souSub + 1, args.session))
+            source_label = np.load(args.label_path + 's{}-{}.npy'.format(souSub + 1, args.session))
             dataloader_source_train, dataloader_source_test = getLoader(source_data, source_label)
 
             # load model
-            my_net = CNNModel(args.routing_iterations, args.num_classes)
+            my_net = CNNModel(args.num_classes)
 
             # setup optimizer
             optimizer = optim.Adam(my_net.parameters(), lr=args.lr)
@@ -157,8 +150,6 @@ if __name__ == '__main__':
                     # 源域的label设置为0
                     domain_label = torch.zeros(batch_size).long()
 
-                    # 维度的转换，要扩充一个维度，表示训练数据的维度
-                    s_data = torch.reshape(s_data, (s_data.shape[0], -1, s_data.shape[1], s_data.shape[2]))
                     s_data = s_data.to(torch.float32)  # 需要进行数据类型的转换
                     s_label = s_label.long()
 
@@ -179,8 +170,6 @@ if __name__ == '__main__':
                     # 目标域的label设置为1
                     domain_label = torch.ones(batch_size).long()
 
-                    # 维度的转换，要扩充一个维度，表示训练数据的维度
-                    t_data = torch.reshape(t_data, (t_data.shape[0], -1, t_data.shape[1], t_data.shape[2]))
                     t_data = t_data.to(torch.float32)
 
                     t_data = t_data.to(device)
@@ -197,8 +186,8 @@ if __name__ == '__main__':
                         % (epoch, i + 1, len_dataloader, err_s_label.data.cpu().numpy(),
                            err_s_domain.data.cpu().numpy(), err_t_domain.data.cpu().item()))
                     sys.stdout.flush()
-                    save_path = args.save_model_path + 's{}tos{}@currentEpoch.pth'
-                    torch.save(my_net, save_path.format(souSub + 1, tarSub + 1))
+                    save_path = args.save_model_path + 'session{}@s{}tos{}@currentEpoch.pth'
+                    torch.save(my_net, save_path.format(args.session, souSub + 1, tarSub + 1))
 
                 # test
                 print('\n')
@@ -209,8 +198,8 @@ if __name__ == '__main__':
                 if accu_t > best_accu_t:
                     best_accu_s = accu_s
                     best_accu_t = accu_t
-                    save_path = args.save_model_path + 's{}tos{}@bestEpoch.pth'
-                    torch.save(my_net, save_path.format(souSub + 1, tarSub + 1))
+                    save_path = args.save_model_path + 'session{}@s{}tos{}@bestEpoch.pth'
+                    torch.save(my_net, save_path.format(args.session, souSub + 1, tarSub + 1))
 
             best_accu_s_array[tarSub][souSub] = best_accu_s
             best_accu_t_array[tarSub][souSub] = best_accu_t
