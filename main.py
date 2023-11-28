@@ -15,7 +15,7 @@ parser.add_argument('--lr', default=0.0001, type=float, help='the initial learni
 parser.add_argument('--epochs', default=300, type=int, help='the epochs of training process')
 parser.add_argument('--num_classes', default=3, type=int, help='the number of classification categories')
 parser.add_argument('--session', default=1, type=int, help='第几次实验')
-parser.add_argument('--batch_size', default=128, type=int, help='the batch size of DataLoader')
+parser.add_argument('--batch_size', default=16, type=int, help='the batch size of DataLoader')
 parser.add_argument('--num_workers', default=0, type=int, help='the num_workers of DataLoader')
 parser.add_argument('--device', default='cuda:0', type=str, help='the number of gpu device')
 # parser.add_argument('--data_path', default='../dataset/EEG//DEAP/eachSub/data/', type=str, help='the path of data')
