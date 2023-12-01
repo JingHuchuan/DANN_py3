@@ -12,13 +12,12 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--nUser', default=32, type=int, help='the number of users')
 parser.add_argument('--lr', default=1e-3, type=float, help='the initial learning rate')
-parser.add_argument('--epochs', default=100, type=int, help='the epochs of training process')
+parser.add_argument('--epochs', default=500, type=int, help='the epochs of training process')
 parser.add_argument('--num_classes', default=2, type=int, help='the number of classification categories')
 parser.add_argument('--batch_size', default=16, type=int, help='the batch size of DataLoader')
-parser.add_argument('--num_workers', default=4, type=int, help='the num_workers of DataLoader')
+parser.add_argument('--num_workers', default=0, type=int, help='the num_workers of DataLoader')
 parser.add_argument('--device', default='cuda:0', type=str, help='the number of gpu device')
-parser.add_argument('--data_path', default='../dataset/EEG//DEAP/eachSub/data/', type=str, help='the path of data')
-parser.add_argument('--label_path', default='../dataset/EEG/DEAP/eachSub/label/', type=str, help='the path of label')
+parser.add_argument('--father_path', default='../dataset/EEG/DEAP/eachSub/', type=str, help='the path of data')
 # parser.add_argument('--data_path', default='../data/EEG/DREAMER/eachSub/data/', type=str, help='the path of data')
 # parser.add_argument('--label_path', default='../data/EEG/DREAMER/eachSub/label/', type=str, help='the path of label')
 parser.add_argument('--save_model_path', default='./result/models/', type=str, help='the path of save model')
@@ -28,28 +27,21 @@ parser.add_argument('--routing_iterations', type=int, default=3)
 
 def getLoader(data, label):
     # 归一化处理
-    norm_data = np.zeros((data.shape[0], data.shape[1], data.shape[2]))
 
-    for j in range(data.shape[0]):
-        for k in range(data.shape[2]):
-            dataChannel = data[j, :, k]
-            mean = dataChannel.mean()
-            sigma = dataChannel.std()
-            norm_data[j, :, k] = (dataChannel - mean) / sigma
+    # mean = np.mean(data, axis=1)
+    # std = np.std(data, axis=1)
+    # norm_data = (data - mean[:, np.newaxis, :]) / std[:, np.newaxis, :]
 
-    # 将数据分为参与训练的和不参与训练的
-    x_train, x_test, y_train, y_test = train_test_split(norm_data, label, test_size=0.2,
-                                                        random_state=None)
+    min_val = np.min(data, axis=1)
+    max_val = np.max(data, axis=1)
+    norm_data = (data - min_val[:, np.newaxis, :]) / (max_val[:, np.newaxis, :] - min_val[:, np.newaxis, :])
 
-    dataset_train = GetLoader(x_train, y_train)
-    dataloader_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True,
-                                                   num_workers=args.num_workers)
+    dataset = GetLoader(norm_data, label)
+    # dataset = GetLoader(data, label)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True,
+                                             num_workers=args.num_workers)
 
-    dataset_test = GetLoader(x_test, y_test)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, shuffle=True,
-                                                  num_workers=args.num_workers)
-
-    return dataloader_train, dataloader_test
+    return dataloader
 
 
 def test(dataloader):
@@ -92,7 +84,6 @@ def test(dataloader):
 
 
 if __name__ == '__main__':
-    multiprocessing.set_start_method('spawn', force=True)
     args = parser.parse_args(sys.argv[1:])
     device = args.device
 
@@ -100,7 +91,7 @@ if __name__ == '__main__':
 
     manual_seed = random.randint(1, 10000)
     random.seed(manual_seed)
-    torch.manual_seed(manual_seed)
+    torch.manual_seed(42)
 
     nUser = 32
     userList = [i for i in range(nUser)]
@@ -111,14 +102,23 @@ if __name__ == '__main__':
     for tarSub in range(args.nUser):
         print("target domain subject is sub{}".format(tarSub + 1))
         trainUserList = [item for item in userList if item != tarSub]
-        target_data = np.load('../dataset/EEG/DEAP/eachSub/data/s{}.npy'.format(tarSub + 1))
-        target_label = np.load('../dataset/EEG/DEAP/eachSub/label/s{}.npy'.format(tarSub + 1))[:, 0]
-        dataloader_target_train, dataloader_target_test = getLoader(target_data, target_label)
+        target_train_data = np.load(args.father_path + '/train_data/s{}.npy'.format(tarSub + 1))
+        target_train_label = np.load(args.father_path + '/train_label/s{}.npy'.format(tarSub + 1))[:, 0]
+        target_test_data = np.load(args.father_path + '/test_data/s{}.npy'.format(tarSub + 1))
+        target_test_label = np.load(args.father_path + '/test_label/s{}.npy'.format(tarSub + 1))[:, 0]
+
+        dataloader_target_train = getLoader(target_train_data, target_train_label)
+        dataloader_target_test = getLoader(target_test_data, target_test_label)
+
         for souSub in trainUserList:
             print("source domain subject is sub{}".format(souSub + 1))
-            source_data = np.load('../dataset/EEG/DEAP/eachSub/data/s{}.npy'.format(souSub + 1))
-            source_label = np.load('../dataset/EEG/DEAP/eachSub/label/s{}.npy'.format(souSub + 1))[:, 0]
-            dataloader_source_train, dataloader_source_test = getLoader(source_data, source_label)
+            source_train_data = np.load(args.father_path + '/train_data/s{}.npy'.format(souSub + 1))
+            source_train_label = np.load(args.father_path + '/train_label/s{}.npy'.format(souSub + 1))[:, 0]
+            source_test_data = np.load(args.father_path + '/test_data/s{}.npy'.format(souSub + 1))
+            source_test_label = np.load(args.father_path + '/test_label/s{}.npy'.format(souSub + 1))[:, 0]
+
+            dataloader_source_train = getLoader(source_train_data, source_train_label)
+            dataloader_source_test = getLoader(source_test_data, source_test_label)
 
             # load model
             my_net = CNNModel(args.routing_iterations, args.num_classes)
