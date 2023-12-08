@@ -22,8 +22,9 @@ parser.add_argument('--device', default='cuda:0', type=str, help='the number of 
 # parser.add_argument('--label_path', default='../dataset/EEG/DEAP/eachSub/label/', type=str, help='the path of label')
 # parser.add_argument('--data_path', default='../data/EEG/DREAMER/eachSub/data/', type=str, help='the path of data')
 # parser.add_argument('--label_path', default='../data/EEG/DREAMER/eachSub/label/', type=str, help='the path of label')
-parser.add_argument('--data_path', default='../dataset/EEG/SEED/data/', type=str, help='the path of data')
-parser.add_argument('--label_path', default='../dataset/EEG/SEED/label/', type=str, help='the path of label')
+parser.add_argument('--father_path', default='../dataset/EEG/SEED/', type=str, help='the path of data')
+# parser.add_argument('--data_path', default='../dataset/EEG/SEED/data/', type=str, help='the path of data')
+# parser.add_argument('--label_path', default='../dataset/EEG/SEED/label/', type=str, help='the path of label')
 parser.add_argument('--save_model_path', default='./result/models/', type=str, help='the path of save model')
 parser.add_argument('--save_record_path', default='./result/record/', type=str, help='the path of save train val test')
 
@@ -32,19 +33,22 @@ def getLoader(data, label):
     for idx in range(len(label)):
         label[idx] = label[idx] + 1
 
-    # 将数据分为参与训练的和不参与训练的
-    x_train, x_test, y_train, y_test = train_test_split(data, label, test_size=0.2,
-                                                        random_state=None)
+    # 归一化处理
 
-    dataset_train = GetLoader(x_train, y_train)
-    dataloader_train = torch.utils.data.DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True,
-                                                   num_workers=args.num_workers)
+    # mean = np.mean(data, axis=1)
+    # std = np.std(data, axis=1)
+    # norm_data = (data - mean[:, np.newaxis, :]) / std[:, np.newaxis, :]
 
-    dataset_test = GetLoader(x_test, y_test)
-    dataloader_test = torch.utils.data.DataLoader(dataset_test, batch_size=args.batch_size, shuffle=True,
-                                                  num_workers=args.num_workers)
+    # min_val = np.min(data, axis=1)
+    # max_val = np.max(data, axis=1)
+    # norm_data = (data - min_val[:, np.newaxis, :]) / (max_val[:, np.newaxis, :] - min_val[:, np.newaxis, :])
+    #
+    # dataset = GetLoader(norm_data, label)
+    dataset = GetLoader(data, label)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=16, shuffle=False,
+                                             num_workers=0)
 
-    return dataloader_train, dataloader_test
+    return dataloader
 
 
 def test(dataloader):
@@ -85,7 +89,6 @@ def test(dataloader):
 
 
 if __name__ == '__main__':
-    multiprocessing.set_start_method('spawn', force=True)
     args = parser.parse_args(sys.argv[1:])
     device = args.device
 
@@ -101,17 +104,27 @@ if __name__ == '__main__':
     best_accu_s_array = np.zeros((args.nUser, nUser))
     best_accu_t_array = np.zeros((args.nUser, nUser))
 
-    for tarSub in range(args.nUser):
+    for tarSub in range(4, args.nUser):
         print("target domain subject is sub{}-{}".format(tarSub + 1, args.session))
         trainUserList = [item for item in userList if item != tarSub]
-        target_data = np.load(args.data_path + 's{}-{}.npy'.format(tarSub + 1, args.session))
-        target_label = np.load(args.label_path + 's{}-{}.npy'.format(tarSub + 1, args.session))
-        dataloader_target_train, dataloader_target_test = getLoader(target_data, target_label)
+
+        target_train_data = np.load(args.father_path + '/train_data/s{}-{}.npy'.format(tarSub + 1, args.session))
+        target_train_label = np.load(args.father_path + '/train_label/s{}-{}.npy'.format(tarSub + 1, args.session))
+        target_test_data = np.load(args.father_path + '/test_data/s{}-{}.npy'.format(tarSub + 1, args.session))
+        target_test_label = np.load(args.father_path + '/test_label/s{}-{}.npy'.format(tarSub + 1, args.session))
+
+        dataloader_target_train = getLoader(target_train_data, target_train_label)
+        dataloader_target_test = getLoader(target_test_data, target_test_label)
+
         for souSub in trainUserList:
             print("source domain subject is sub{}-{}".format(souSub + 1, args.session))
-            source_data = np.load(args.data_path + 's{}-{}.npy'.format(souSub + 1, args.session))
-            source_label = np.load(args.label_path + 's{}-{}.npy'.format(souSub + 1, args.session))
-            dataloader_source_train, dataloader_source_test = getLoader(source_data, source_label)
+            source_train_data = np.load(args.father_path + '/train_data/s{}-{}.npy'.format(souSub + 1, args.session))
+            source_train_label = np.load(args.father_path + '/train_label/s{}-{}.npy'.format(souSub + 1, args.session))
+            source_test_data = np.load(args.father_path + '/test_data/s{}-{}.npy'.format(souSub + 1, args.session))
+            source_test_label = np.load(args.father_path + '/test_label/s{}-{}.npy'.format(souSub + 1, args.session))
+
+            dataloader_source_train = getLoader(source_train_data, source_train_label)
+            dataloader_source_test = getLoader(source_test_data, source_test_label)
 
             # load model
             my_net = CNNModel(args.num_classes)
